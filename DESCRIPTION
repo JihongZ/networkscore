@@ -1,11 +1,20 @@
 Package: networkscore
 Type: Package
-Title: What the Package Does (Title Case)
+Title: Estimating network scores in network psychometrics
 Version: 0.1.0
-Author: Who wrote it
+Authors@R: person("Jihong", "Zhang", 
+                  email = "jzhang@uark.edu",
+                  role = c("aut", "cre"))
 Maintainer: The package maintainer <yourself@somewhere.net>
 Description: More about what it does (maybe more than one line)
     Use four spaces when indenting paragraphs within the Description.
 License: What license is it under?
 Encoding: UTF-8
 LazyData: true
+Imports:
+    lavaan,
+    mvtnorm,
+    NetworkToolbox,
+    psychonetrics,
+    qgraph
+RoxygenNote: 7.3.1
