@@ -46,11 +46,15 @@ networkscore <- function(dat) {
   out$RegNS_RS <- as.numeric(sqrt(Node_Strength_mod1) %*% Scaled_Y1) # Regularized NS based on square roots of strength
 
   ## Hybrid based Network Score for regularized model
-  Omega1[Omega1 == 0] <- .01
+  Omega1[Omega1 == 0] <- .001
   diag(Omega1) = 0
   Hybrid_mod1 = NetworkToolbox::hybrid(Omega1)
   out$RegNS_H <- as.numeric(Hybrid_mod1 %*% Scaled_Y1)
   out$RegNS_RH <- as.numeric(sqrt(Hybrid_mod1) %*% Scaled_Y1)
+
+  ## Linear Combination
+  out$NS_Origin <- as.numeric(Hybrid_mod0 %*% t(dat))
+  out$NS_Origin_S <- as.numeric(Node_Strength_mod1 %*% t(dat))
 
   out
 }
