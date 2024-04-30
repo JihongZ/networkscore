@@ -14,47 +14,68 @@
 #   Test Package:              'Cmd + Shift + T'
 #' @export
 
+transform_centrality <- function(centrality){
+  centrality = centrality / (length(centrality) - 1)
+  (centrality - min(centrality)) / (sd(centrality))
+}
+
+hb_centrality <- function(omega){
+  omega[omega == 0] <- .0001
+  diag(omega) = 0
+  NetworkToolbox::hybrid(omega)
+}
+
 networkscore <- function(dat) {
   out <- list()
-
   # Model 0: saturated model
-  mod0 <- psychonetrics::ggm(dat)
+  mod0 <- psychonetrics::ggm(dat, estimator = "ML", standardize = 'z')
   fit0 <- mod0 |> psychonetrics::runmodel()
-  Delta = psychonetrics::getmatrix(fit0, "delta")
   Omega = psychonetrics::getmatrix(fit0, "omega")
-  Scaled_Y = solve(Delta) %*% (diag(1, ncol(dat)) - Omega) %*% solve(Delta) %*% t(dat)
+  # Delta = psychonetrics::getmatrix(fit0, "delta")
+  # Kappa = psychonetrics::getmatrix(fit0, "kappa")
+  # Scaled_Y = Kappa %*% t(dat)
 
-  ## Strength based Network Score
-  Node_Strength_mod0  = rowSums(abs(Omega))
-  out$NS_S <- as.numeric(Node_Strength_mod0 %*% Scaled_Y) # NS based on raw strength
-  out$NS_RS <- as.numeric(sqrt(Node_Strength_mod0) %*% Scaled_Y) # NS based on square root of strength
+  ## Model 0 Score: Strength based Network Score
+  # S_mod0  = rowSums(abs(Omega))
+  S_mod0  = transform_centrality(rowSums(abs(Omega)))
+  EI_mod0  = transform_centrality(rowSums(Omega))
+  HB_mod0 = hb_centrality(Omega)
 
-  ## Hybrid based Network Score
-  Hybrid_mod0 = NetworkToolbox::hybrid(Omega)
-  out$NS_H <- as.numeric(Hybrid_mod0 %*% Scaled_Y)
-  out$NS_RH <- as.numeric(sqrt(Hybrid_mod0) %*% Scaled_Y)
+  out$NS_S <- as.numeric(S_mod0 %*% t(dat)) # NS based on raw strength
+  out$NS_RS <- as.numeric(sqrt(S_mod0) %*% t(dat)) # NS based on square root of strength
+  out$NS_EI <- as.numeric(EI_mod0 %*% t(dat)) # NS based on raw strength
+  out$NS_REI <- as.numeric(sqrt(EI_mod0) %*% t(dat)) # NS based on square root of strength
+  out$NS_H <- as.numeric(HB_mod0 %*% t(dat)) ## Hybrid based Network Score
 
   # Model 1: regularized model
   fit1 <- mod0 |> psychonetrics::prune() |> psychonetrics::runmodel()
-  Delta1 = psychonetrics::getmatrix(fit1, "delta")
   Omega1 = psychonetrics::getmatrix(fit1, "omega")
-  Scaled_Y1 = solve(Delta1) %*% (diag(1, ncol(dat)) - Omega1) %*% solve(Delta1) %*% t(dat)
+  # Delta1 = psychonetrics::getmatrix(fit1, "delta")
+  # Kappa1 = psychonetrics::getmatrix(fit1, "kappa")
+  # Scaled_Y1 = Kappa1 %*% t(dat)
 
-  ## Strength-based Network Score for regularized model
-  Node_Strength_mod1  = rowSums(abs(Omega1))
-  out$RegNS_S <- as.numeric(Node_Strength_mod1 %*% Scaled_Y1) # Regularized NS based on strength
-  out$RegNS_RS <- as.numeric(sqrt(Node_Strength_mod1) %*% Scaled_Y1) # Regularized NS based on square roots of strength
+  ## Model 1 Score: Strength-based Network Score for regularized model
+  # S_mod1  = rowSums(abs(Omega1))
+  S_mod1  = transform_centrality(rowSums(abs(Omega1)))
+  EI_mod1  = transform_centrality(rowSums(Omega1))
+  HB_mod1 = hb_centrality(Omega1)
+
+  out$RegNS_S <- as.numeric(S_mod1 %*% t(dat)) # Regularized NS based on strength
+  out$RegNS_RS <- as.numeric(sqrt(S_mod1) %*% t(dat)) # Regularized NS based on square roots of strength
+  out$RegNS_EI <- as.numeric(EI_mod1 %*% t(dat)) # Regularized NS based on strength
+  out$RegNS_REI <- as.numeric(sqrt(EI_mod1) %*% t(dat)) # Regularized NS based on square roots of strength
+  out$RegNS_H <- as.numeric(HB_mod1 %*% t(dat))
 
   ## Hybrid based Network Score for regularized model
-  Omega1[Omega1 == 0] <- .001
-  diag(Omega1) = 0
-  Hybrid_mod1 = NetworkToolbox::hybrid(Omega1)
-  out$RegNS_H <- as.numeric(Hybrid_mod1 %*% Scaled_Y1)
-  out$RegNS_RH <- as.numeric(sqrt(Hybrid_mod1) %*% Scaled_Y1)
+  # out$RegNS_RH <- as.numeric(sqrt(Hybrid_mod1) %*% Scaled_Y1)
 
-  ## Linear Combination
-  out$NS_Origin <- as.numeric(Hybrid_mod0 %*% t(dat))
-  out$NS_Origin_S <- as.numeric(Node_Strength_mod1 %*% t(dat))
+  ## Linear Combination Christensen (2018)
+  # out$NS_H_0 <- as.numeric(HB_mod0 %*% t(dat))
+  # out$NS_S_0 <- as.numeric(S_mod0 %*% t(dat))
+  # out$NS_RS_0 <- as.numeric(sqrt(S_mod0) %*% t(dat))
+  # out$NS_EI_0 <- as.numeric(EI_mod0 %*% t(dat))
+  # out$NS_REI_0 <- as.numeric(sqrt(EI_mod0) %*% t(dat))
 
+  out <- lapply(out, \(x) as.numeric(scale(x))) # standarized
   out
 }
