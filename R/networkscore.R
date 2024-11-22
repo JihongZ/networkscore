@@ -220,3 +220,134 @@ PredNetworkScore <- function(gendat) {
   out
 }
 
+
+#' Simulate single and multiple data for factor and network analysis
+#' @param dat data matrix.
+#' @param Qmatrix Q-matrix between item and factors.
+#' @return a data list including different network scores: NS_S, NS_RS, NS_H, NS_RH, NS_C, NS_B, RegNS_S, RegNS_RS, RegNS_H, RegNS_RH, RegNS_C, RegNS_B
+#' @examples
+#' # generate data and true factor scores
+#' OneRep_onefactor <- data.generation(N = 500, J = 5,
+#'                                     Psi12 = 0.3,
+#'                                     Lambda = matrix(runif(5, .4, .7),5, 1) ,
+#'                                     Phi = matrix(1, 1, 1))
+#' str(OneRep_onefactor)
+#' NetworkScore(dat = OneRep_onefactor$data,
+#'              Qmatrix = (OneRep_onefactor$Lambda != 0))
+#'
+#' @export
+NetworkScore <- function(dat, Qmatrix) {
+  K = ncol(Qmatrix) # number of latent factors
+  N <- nrow(dat)
+  out <- list()
+
+  ############################## ---
+  # Model 0: Saturated model
+  ############################## ---
+  mod0 <- psychonetrics::ggm(dat)
+  fit0 <- mod0 |> psychonetrics::runmodel()
+  Delta = psychonetrics::getmatrix(fit0, "delta")
+  Omega = psychonetrics::getmatrix(fit0, "omega")
+  # Scaled_Y = solve(Delta) %*% (diag(1, ncol(dat)) - Omega) %*% solve(Delta) %*% t(dat)
+  Scaled_Y = as.matrix(t(dat))
+  out$modfit_mod0 <- extract_modfit_network(fit0) # could be zero
+
+  ############################## ---
+  # Model 1: Regularized model
+  ############################## ---
+  fit1 <- mod0 |> psychonetrics::prune() |> psychonetrics::runmodel()
+  Delta1 = psychonetrics::getmatrix(fit1, "delta")
+  Omega1 = psychonetrics::getmatrix(fit1, "omega")
+  #Scaled_Y1 = solve(Delta1) %*% (diag(1, ncol(dat)) - Omega1) %*% solve(Delta1) %*% t(dat)
+  Scaled_Y1 = as.matrix(t(dat))
+  out$modfit_mod1 <- extract_modfit_network(fit1)
+
+
+  if (K == 1) {
+    ## Strength based Network Score
+    Node_Strength_mod0  = rowSums(abs(Omega))
+    out$NS_S <- as.numeric(Node_Strength_mod0 %*% Scaled_Y) # NS based on raw strength
+    out$NS_RS <- as.numeric(sqrt(Node_Strength_mod0) %*% Scaled_Y) # NS based on square root of strength
+    ## Hybrid based Network Score
+    Hybrid_mod0 = NetworkToolbox::hybrid(Omega)
+    out$NS_H <- as.numeric(Hybrid_mod0 %*% Scaled_Y)
+    out$NS_RH <- as.numeric(sqrt(Hybrid_mod0) %*% Scaled_Y)
+    ## closeness based Network Score
+    Closeness_mod0 = NetworkToolbox::closeness(Omega)
+    Betweenness_mod0 = NetworkToolbox::betweenness(Omega)
+    out$NS_C <- as.numeric(Closeness_mod0 %*% Scaled_Y)
+    out$NS_B <- as.numeric(Betweenness_mod0 %*% Scaled_Y)
+
+
+
+    ## Strength-based Network Score for regularized model
+    Node_Strength_mod1  = rowSums(abs(Omega1))
+    out$RegNS_S <- as.numeric(Node_Strength_mod1 %*% Scaled_Y1) # Regularized NS based on strength
+    out$RegNS_RS <- as.numeric(sqrt(Node_Strength_mod1) %*% Scaled_Y1) # Regularized NS based on square roots of strength
+    ## Hybrid based Network Score for regularized model
+    Omega1[Omega1 == 0] <- .001
+    diag(Omega1) = 0
+    Hybrid_mod1 = NetworkToolbox::hybrid(Omega1)
+    out$RegNS_H <- as.numeric(Hybrid_mod1 %*% Scaled_Y1)
+    out$RegNS_RH <- as.numeric(sqrt(Hybrid_mod1) %*% Scaled_Y1)
+
+    ## closeness based Network Score
+    Closeness_mod1 = NetworkToolbox::closeness(Omega1)
+    Betweenness_mod1 = NetworkToolbox::betweenness(Omega1)
+    out$RegNS_C <- as.numeric(Closeness_mod1 %*% Scaled_Y1)
+    out$RegNS_B <- as.numeric(Betweenness_mod1 %*% Scaled_Y1)
+
+  }else{
+    # we don't use community-detection method, instead just use loaded items to calculate network scores.
+    NS_C <- NS_B <- NS_S <- NS_RS <- NS_H <- NS_RH <- matrix(NA, nrow = N, ncol = K)
+    RegNS_C <- RegNS_B <- RegNS_S <- RegNS_RS <- RegNS_H <- RegNS_RH <- matrix(NA, nrow = N, ncol = K)
+
+    # For multi-dimensional model
+    ## Strength based Network Score
+    Node_Strength_mod0  = rowSums(abs(Omega))
+    Node_Strength_mod1  = rowSums(abs(Omega1))
+    ## Hybrid based Network Score
+    Hybrid_mod0 = NetworkToolbox::hybrid(Omega)
+    Hybrid_mod1 = NetworkToolbox::hybrid(Omega1)
+    ## closeness based Network Score
+    Closeness_mod0 = NetworkToolbox::closeness(Omega)
+    Closeness_mod1 = NetworkToolbox::closeness(Omega1)
+    Betweenness_mod0 = NetworkToolbox::betweenness(Omega)
+    Betweenness_mod1 = NetworkToolbox::betweenness(Omega1)
+
+    factor_str <- Qmatrix != 0
+
+    for (k in 1:K) {
+      items_loadedOnFactor <- which(factor_str[, k] == TRUE)
+      NS_S[, k] <- scale(as.numeric(Node_Strength_mod0[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      NS_RS[, k] <- scale(as.numeric(sqrt(Node_Strength_mod0[items_loadedOnFactor]) %*% Scaled_Y[items_loadedOnFactor,]))
+      NS_H[, k] <- scale(as.numeric(Hybrid_mod0[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      NS_RH[, k] <- scale(as.numeric(sqrt(Hybrid_mod0[items_loadedOnFactor]) %*% Scaled_Y[items_loadedOnFactor,]))
+      NS_C[, k] <- scale(as.numeric(Closeness_mod0[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      NS_B[, k] <- scale(as.numeric(Betweenness_mod0[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+
+      RegNS_S[, k] <- scale(as.numeric(Node_Strength_mod1[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      RegNS_RS[, k] <- scale(as.numeric(sqrt(Node_Strength_mod1[items_loadedOnFactor]) %*% Scaled_Y[items_loadedOnFactor,]))
+      RegNS_H[, k] <- scale(as.numeric(Hybrid_mod1[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      RegNS_RH[, k] <- scale(as.numeric(sqrt(Hybrid_mod1[items_loadedOnFactor]) %*% Scaled_Y[items_loadedOnFactor,]))
+      RegNS_C[, k] <- scale(as.numeric(Closeness_mod1[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      RegNS_B[, k] <- scale(as.numeric(Betweenness_mod1[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+    }
+
+    out$NS_S <- NS_S
+    out$NS_RS <- NS_RS
+    out$NS_H <- NS_H
+    out$NS_RH <- NS_RH
+    out$NS_C <- NS_C
+    out$NS_B <- NS_B
+    out$RegNS_S <- RegNS_S
+    out$RegNS_RS <- RegNS_RS
+    out$RegNS_H <- RegNS_H
+    out$RegNS_RH <- RegNS_RH
+    out$RegNS_C <- RegNS_C
+    out$RegNS_B <- RegNS_B
+  }
+
+  out
+}
+
