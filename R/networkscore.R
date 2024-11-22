@@ -1,101 +1,222 @@
-# Hello, world!
-#
-# This is an example function named 'hello'
-# which prints 'Hello, world!'.
-#
-# You can learn more about package authoring with RStudio at:
-#
-#   http://r-pkgs.had.co.nz/
-#
-# Some useful keyboard shortcuts for package authoring:
-#
-#   Install Package:           'Cmd + Shift + B'
-#   Check Package:             'Cmd + Shift + E'
-#   Test Package:              'Cmd + Shift + T'
+#' Simulate single and multiple data for factor and network analysis
+#'
+#' @param N Sample Size.
+#' @param J Number of items per dimension.
+#' @param Lambda Matrix of factor loadings with the number of columns same to number of dimensions.
+#' @param Psi12 Residual covariances.
+#' @param Phi Factor correlation (for multidimensional factor analysis only).
+#' @param MisType Different types residual covariance matrix (simple, within-factor, and between-factor residual covariances)
+#' @returns A list including Sample size (N), Number of items (J), Lambda (factor loading matrix), Psi12 (residual covariances), Phi (factor correlation), data (generated data set), true_factor_score (data-generating factor scores).
 #' @export
+#' @examples
+#' OneRep_onefactor <- data.generation(N = 500, J = 5,
+#' Psi12 = 0.3,
+#' Lambda = matrix(runif(5, .4, .7),5, 1) ,
+#' Phi = matrix(1, 1, 1)) # generate data and true factor scores
+#' str(OneRep_onefactor)
+#' OneRep_twofactor <- data.generation(N = 1000, J = 5,
+#'                                    Psi12 = 0.3,
+#'                                    Lambda = matrix(c(1, runif(4, .4, .7),
+#'                                                      rep(0, 5), rep(0, 5), 1,
+#'                                                      runif(4, .4, .7)), 10, 2),
+#'                                    Phi = matrix(c(1, .3, .3, 1), 2, 2))
+#' str(OneRep_twofactor)
 
-centrality_rescale <- function(centrality){
-  (centrality - min(centrality)) / (sd(centrality))
-  # (rank(centrality) - 1)/(length(centrality)-1)
+data.generation <- function(N, J, Lambda, Psi12 = 0, Phi, MisType = NULL){
+
+  if (nrow(Phi) != ncol(Phi)) stop("Your factor correlation matrix is not a square matrix")
+  if (ncol(Lambda) != ncol(Phi) | ncol(Lambda) != nrow(Phi)) stop("Your factor loadings' columns should be same as number of dimensions factor correlation matrix")
+  if (nrow(Lambda) != J*ncol(Lambda)) stop("Number of rows of factor loadings should be same to number of items per factor (J)")
+
+
+  if (ncol(Lambda) == 1) { # if unidimensional factor
+    Mu_mat <- matrix(0, nrow = N, ncol = J) # item intercept matrix
+
+    Residual_Sigma <- diag(1-as.numeric(Lambda)^2, J) # residual variance covariance matrix
+    Residual_Sigma[1,2] = Residual_Sigma[2,1] = Psi12
+    Residual_Data <- mvtnorm::rmvnorm(N, mean = rep(0, J), sigma = Residual_Sigma)
+    FactorScore <- as.matrix(rnorm(N, mean = 0, sd = 1))
+    myData <- FactorScore %*% t(Lambda) + Mu_mat + Residual_Data
+  }else{ # if multidimensional factor with within-factor residual corr.
+    N_factors <- ncol(Lambda)
+    Total_N_items <- J*ncol(Lambda)
+
+    Mu_mat <- matrix(0, nrow = N, ncol = Total_N_items) # item intercept matrix
+
+    if (MisType == "within") {
+      Psi12 = .3
+      Residual_Sigma <- diag(diag(1 - Lambda %*% Phi %*% t(Lambda)))
+      for (i in 0:(N_factors-1)) {
+        rowi = J*i+2
+        coli = J*i+3
+        Residual_Sigma[rowi,coli] = Residual_Sigma[coli,rowi] = Psi12
+        Residual_Sigma[rowi, rowi] = Residual_Sigma[coli, coli] = Residual_Sigma[coli, coli] - Psi12^2
+      }
+    }else if (MisType == "between"){
+      Psi12 = .3
+      Residual_Sigma <- diag(diag(1 - Lambda %*% Phi %*% t(Lambda)))
+      for (i in 0:(N_factors-1)) { # 2~6, 5~8, 8~3; 2~9, 8~15, 14~3
+        rowi = J*i+2
+        coli = J*(i+1)+3
+        if (coli > J*N_factors) {coli = 3}
+        Residual_Sigma[rowi, coli] = Residual_Sigma[coli, rowi] = Psi12
+        Residual_Sigma[rowi, rowi] = Residual_Sigma[coli, coli] = Residual_Sigma[coli, coli] - Psi12^2
+      }
+
+    }else if(MisType == "correct") {
+
+      Residual_Sigma <- diag(diag(1 - Lambda %*% Phi %*% t(Lambda)))
+    }else{
+      message("Your misspecification type is not correct. Should be either 'within' or 'between'")
+    }
+
+    Residual_Data <- mvtnorm::rmvnorm(N, mean = rep(0, Total_N_items), sigma = Residual_Sigma)
+    FactorScore <- mvtnorm::rmvnorm(N, mean = rep(0, N_factors), sigma = Phi)
+    myData <- FactorScore %*% t(Lambda) + Mu_mat + Residual_Data
+  }
+
+  list(
+    N = N,
+    J = J,
+    Lambda = Lambda,
+    Psi12 = Psi12,
+    Phi = Phi,
+    data= myData,
+    true_factor_score = FactorScore
+  )
 }
-centrality_rank <- function(centrality){
-  #(centrality - min(centrality)) / (max(centrality) - min(centrality))
-  (rank(centrality) - 1)/(length(centrality)-1)
+
+#' @export
+extract_modfit_network <- function(fit) {
+  invisible(capture.output(all_fits <- invisible(psychonetrics::fit(fit))))
+  return(all_fits[all_fits[,1] %in% c("rmsea", "cfi", "tli", "aic", "bic"), 2])
 }
 
-(centrality <- runif(10, .8, .9))
-(centrality2 <- centrality + .1)
-rank <- centrality_rank(centrality)
-unique(rank)[order(unique(rank))]
-
-rank2 <- centrality_rank(centrality2)
-plot(rank, rank2)
-
-hb_centrality <- function(omega){
-  omega[omega == 0] <- .0001
-  diag(omega) = 0
-  NetworkToolbox::hybrid(omega)
-}
-
-networkscore <- function(dat) {
+#' Simulate single and multiple data for factor and network analysis
+#' @param gendat data list generated by `data.generation()` function.
+#' @return a data list including different network scores: NS_S, NS_RS, NS_H, NS_RH, NS_C, NS_B, RegNS_S, RegNS_RS, RegNS_H, RegNS_RH, RegNS_C, RegNS_B
+#' @examples
+#' OneRep_onefactor <- data.generation(N = 500, J = 5,
+#' Psi12 = 0.3,
+#' Lambda = matrix(runif(5, .4, .7),5, 1) ,
+#' Phi = matrix(1, 1, 1)) # generate data and true factor scores
+#' str(OneRep_onefactor)
+#' PredNetworkScore(OneRep_onefactor)
+#'
+#' @export
+PredNetworkScore <- function(gendat) {
+  lambda_mat <- gendat$Lambda
+  K = ncol(lambda_mat) # number of latent factors
+  N <- gendat$N
+  dat <- gendat$data
   out <- list()
-  # Model 0: saturated model
-  mod0 <- psychonetrics::ggm(dat, estimator = "ML", standardize = 'z')
+  ############################## ---
+  # Model 0: Saturated model
+  ############################## ---
+  mod0 <- psychonetrics::ggm(dat)
   fit0 <- mod0 |> psychonetrics::runmodel()
-  Omega = psychonetrics::getmatrix(fit0, "omega")
   Delta = psychonetrics::getmatrix(fit0, "delta")
-  Kappa = psychonetrics::getmatrix(fit0, "kappa")
-  Scaled_Y = dat%*%Kappa
+  Omega = psychonetrics::getmatrix(fit0, "omega")
+  # Scaled_Y = solve(Delta) %*% (diag(1, ncol(dat)) - Omega) %*% solve(Delta) %*% t(dat)
+  Scaled_Y = as.matrix(t(dat))
+  out$modfit_mod0 <- extract_modfit_network(fit0) # could be zero
 
-  ## Model 0 Score: Strength based Network Score
-  S_mod0  = centrality_rescale(rowSums(abs(Omega)))
-  EI_mod0  = centrality_rescale(rowSums(Omega))
-  BC_mod0  = centrality_rescale(NetworkToolbox::betweenness(Omega)) # betweenness centrality (BC);
-  LC_mod0  = centrality_rescale(NetworkToolbox::closeness(Omega)) # closeness centrality;
-  S_mod0_rank  = centrality_rank(rowSums(abs(Omega)))
-  EI_mod0_rank  = centrality_rank(rowSums(Omega))
-  BC_mod0_rank  = centrality_rank(NetworkToolbox::betweenness(Omega)) # betweenness centrality (BC);
-  LC_mod0_rank  = centrality_rank(NetworkToolbox::closeness(Omega)) # closeness centrality;
-  HB_mod0 = hb_centrality(Omega)
-
-  out$NS_S <- as.numeric(S_mod0 %*% t(dat)) # NS based on raw strength
-  out$NS_EI <- as.numeric(EI_mod0 %*% t(dat)) # NS based on raw strength
-  out$NS_BC <- as.numeric(BC_mod0 %*% t(dat)) # BC based on raw strength
-  out$NS_LC <- as.numeric(LC_mod0 %*% t(dat)) # LC based on raw strength
-  out$NS_S_rank <- as.numeric(S_mod0_rank %*% t(dat)) # NS based on raw strength
-  out$NS_EI_rank <- as.numeric(EI_mod0_rank %*% t(dat)) # NS based on raw strength
-  out$NS_BC_rank <- as.numeric(BC_mod0_rank %*% t(dat)) # BC based on raw strength
-  out$NS_LC_rank <- as.numeric(LC_mod0_rank %*% t(dat)) # LC based on raw strength
-  out$NS_H <- as.numeric(HB_mod0 %*% t(dat)) ## Hybrid based Network Score
-
-  # Model 1: regularized model
+  ############################## ---
+  # Model 1: Regularized model
+  ############################## ---
   fit1 <- mod0 |> psychonetrics::prune() |> psychonetrics::runmodel()
-  Omega1 = psychonetrics::getmatrix(fit1, "omega")
   Delta1 = psychonetrics::getmatrix(fit1, "delta")
-  Kappa1 = psychonetrics::getmatrix(fit1, "kappa")
-  Scaled_Y1 = dat%*%Kappa1
+  Omega1 = psychonetrics::getmatrix(fit1, "omega")
+  #Scaled_Y1 = solve(Delta1) %*% (diag(1, ncol(dat)) - Omega1) %*% solve(Delta1) %*% t(dat)
+  Scaled_Y1 = as.matrix(t(dat))
+  out$modfit_mod1 <- extract_modfit_network(fit1)
 
-  ## Model 1 Score: Strength-based Network Score for regularized model
-  # S_mod1  = rowSums(abs(Omega1))
-  S_mod1  = centrality_rank(rowSums(abs(Omega1)))
-  EI_mod1  = centrality_rank(rowSums(Omega1))
-  BC_mod1  = centrality_rank(NetworkToolbox::betweenness(Omega1)) # betweenness centrality (BC);
-  LC_mod1  = centrality_rank(NetworkToolbox::closeness(Omega1)) # closeness centrality;
-  HB_mod1 = hb_centrality(Omega1)
 
-  out$RegNS_S <- as.numeric(S_mod1 %*% t(dat)) # Regularized NS based on strength
-  out$RegNS_EI <- as.numeric(EI_mod1 %*% t(dat)) # Regularized NS based on strength
-  out$RegNS_BC <- as.numeric(BC_mod1 %*% t(dat)) # BC based on raw strength
-  out$RegNS_LC <- as.numeric(LC_mod1 %*% t(dat)) # LC based on raw strength
-  out$RegNS_H <- as.numeric(HB_mod1 %*% t(dat))
+  if (K == 1) {
+    ## Strength based Network Score
+    Node_Strength_mod0  = rowSums(abs(Omega))
+    out$NS_S <- as.numeric(Node_Strength_mod0 %*% Scaled_Y) # NS based on raw strength
+    out$NS_RS <- as.numeric(sqrt(Node_Strength_mod0) %*% Scaled_Y) # NS based on square root of strength
+    ## Hybrid based Network Score
+    Hybrid_mod0 = NetworkToolbox::hybrid(Omega)
+    out$NS_H <- as.numeric(Hybrid_mod0 %*% Scaled_Y)
+    out$NS_RH <- as.numeric(sqrt(Hybrid_mod0) %*% Scaled_Y)
+    ## closeness based Network Score
+    Closeness_mod0 = NetworkToolbox::closeness(Omega)
+    Betweenness_mod0 = NetworkToolbox::betweenness(Omega)
+    out$NS_C <- as.numeric(Closeness_mod0 %*% Scaled_Y)
+    out$NS_B <- as.numeric(Betweenness_mod0 %*% Scaled_Y)
 
-  ## Linear Combination Christensen (2018)
-  # out$NS_S_0 <- as.numeric(S_mod0 %*% t(dat))
-  # out$NS_EI_0 <- as.numeric(EI_mod0 %*% t(dat))
-  # out$NS_BC_0 <- as.numeric(BC_mod0 %*% t(dat)) # NS based on raw strength
-  # out$NS_LC_0 <- as.numeric(LC_mod0 %*% t(dat)) # NS based on raw strength
-  # out$NS_H_0 <- as.numeric(HB_mod0 %*% t(dat))
 
-  out <- lapply(out, \(x) as.numeric(scale(x))) # standarized
+
+    ## Strength-based Network Score for regularized model
+    Node_Strength_mod1  = rowSums(abs(Omega1))
+    out$RegNS_S <- as.numeric(Node_Strength_mod1 %*% Scaled_Y1) # Regularized NS based on strength
+    out$RegNS_RS <- as.numeric(sqrt(Node_Strength_mod1) %*% Scaled_Y1) # Regularized NS based on square roots of strength
+    ## Hybrid based Network Score for regularized model
+    Omega1[Omega1 == 0] <- .001
+    diag(Omega1) = 0
+    Hybrid_mod1 = NetworkToolbox::hybrid(Omega1)
+    out$RegNS_H <- as.numeric(Hybrid_mod1 %*% Scaled_Y1)
+    out$RegNS_RH <- as.numeric(sqrt(Hybrid_mod1) %*% Scaled_Y1)
+
+    ## closeness based Network Score
+    Closeness_mod1 = NetworkToolbox::closeness(Omega1)
+    Betweenness_mod1 = NetworkToolbox::betweenness(Omega1)
+    out$RegNS_C <- as.numeric(Closeness_mod1 %*% Scaled_Y1)
+    out$RegNS_B <- as.numeric(Betweenness_mod1 %*% Scaled_Y1)
+
+  }else{
+    # we don't use community-detection method, instead just use loaded items to calculate network scores.
+    NS_C <- NS_B <- NS_S <- NS_RS <- NS_H <- NS_RH <- matrix(NA, nrow = N, ncol = K)
+    RegNS_C <- RegNS_B <- RegNS_S <- RegNS_RS <- RegNS_H <- RegNS_RH <- matrix(NA, nrow = N, ncol = K)
+
+    # For multi-dimensional model
+    ## Strength based Network Score
+    Node_Strength_mod0  = rowSums(abs(Omega))
+    Node_Strength_mod1  = rowSums(abs(Omega1))
+    ## Hybrid based Network Score
+    Hybrid_mod0 = NetworkToolbox::hybrid(Omega)
+    Hybrid_mod1 = NetworkToolbox::hybrid(Omega1)
+    ## closeness based Network Score
+    Closeness_mod0 = NetworkToolbox::closeness(Omega)
+    Closeness_mod1 = NetworkToolbox::closeness(Omega1)
+    Betweenness_mod0 = NetworkToolbox::betweenness(Omega)
+    Betweenness_mod1 = NetworkToolbox::betweenness(Omega1)
+
+    factor_str <- lambda_mat != 0
+
+    for (k in 1:K) {
+      items_loadedOnFactor <- which(factor_str[, k] == TRUE)
+      NS_S[, k] <- scale(as.numeric(Node_Strength_mod0[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      NS_RS[, k] <- scale(as.numeric(sqrt(Node_Strength_mod0[items_loadedOnFactor]) %*% Scaled_Y[items_loadedOnFactor,]))
+      NS_H[, k] <- scale(as.numeric(Hybrid_mod0[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      NS_RH[, k] <- scale(as.numeric(sqrt(Hybrid_mod0[items_loadedOnFactor]) %*% Scaled_Y[items_loadedOnFactor,]))
+      NS_C[, k] <- scale(as.numeric(Closeness_mod0[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      NS_B[, k] <- scale(as.numeric(Betweenness_mod0[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+
+      RegNS_S[, k] <- scale(as.numeric(Node_Strength_mod1[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      RegNS_RS[, k] <- scale(as.numeric(sqrt(Node_Strength_mod1[items_loadedOnFactor]) %*% Scaled_Y[items_loadedOnFactor,]))
+      RegNS_H[, k] <- scale(as.numeric(Hybrid_mod1[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      RegNS_RH[, k] <- scale(as.numeric(sqrt(Hybrid_mod1[items_loadedOnFactor]) %*% Scaled_Y[items_loadedOnFactor,]))
+      RegNS_C[, k] <- scale(as.numeric(Closeness_mod1[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+      RegNS_B[, k] <- scale(as.numeric(Betweenness_mod1[items_loadedOnFactor] %*% Scaled_Y[items_loadedOnFactor,]))
+    }
+
+    out$NS_S <- NS_S
+    out$NS_RS <- NS_RS
+    out$NS_H <- NS_H
+    out$NS_RH <- NS_RH
+    out$NS_C <- NS_C
+    out$NS_B <- NS_B
+    out$RegNS_S <- RegNS_S
+    out$RegNS_RS <- RegNS_RS
+    out$RegNS_H <- RegNS_H
+    out$RegNS_RH <- RegNS_RH
+    out$RegNS_C <- RegNS_C
+    out$RegNS_B <- RegNS_B
+  }
+
   out
 }
+
